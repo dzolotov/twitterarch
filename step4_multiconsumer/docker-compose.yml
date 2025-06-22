@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_PLUGINS_ENABLE: rabbitmq_consistent_hash_exchange
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ..
+      dockerfile: step4_multiconsumer/Dockerfile
+    ports:
+      - "8004:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@postgres/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@postgres/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: uvicorn step4_multiconsumer.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ..:/app
+
+  # Multiple workers
+  worker1:
+    build:
+      context: ..
+      dockerfile: step4_multiconsumer/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@postgres/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@postgres/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      PYTHONPATH: /app
+    depends_on:
+      - app
+    command: python -m step4_multiconsumer.app.workers.feed_worker 0
+    volumes:
+      - ..:/app
+
+  worker2:
+    build:
+      context: ..
+      dockerfile: step4_multiconsumer/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@postgres/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@postgres/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      PYTHONPATH: /app
+    depends_on:
+      - app
+    command: python -m step4_multiconsumer.app.workers.feed_worker 1
+    volumes:
+      - ..:/app
+
+  worker3:
+    build:
+      context: ..
+      dockerfile: step4_multiconsumer/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@postgres/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@postgres/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      PYTHONPATH: /app
+    depends_on:
+      - app
+    command: python -m step4_multiconsumer.app.workers.feed_worker 2
+    volumes:
+      - ..:/app
+
+  worker4:
+    build:
+      context: ..
+      dockerfile: step4_multiconsumer/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@postgres/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@postgres/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      PYTHONPATH: /app
+    depends_on:
+      - app
+    command: python -m step4_multiconsumer.app.workers.feed_worker 3
+    volumes:
+      - ..:/app
+
+volumes:
+  citus_master_data:
+  citus_worker1_data:
+  citus_worker2_data:
+  citus_worker3_data:

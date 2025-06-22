@@ -1,0 +1,227 @@
+version: '3.8'
+
+services:
+  # Citus Coordinator node (master)
+  citus_master:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_master
+    volumes:
+      - citus_master_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Citus Worker nodes
+  citus_worker_1:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_1
+    volumes:
+      - citus_worker1_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  citus_worker_2:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_2
+    volumes:
+      - citus_worker2_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  citus_worker_3:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_3
+    volumes:
+      - citus_worker3_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_PLUGINS_ENABLE: rabbitmq_consistent_hash_exchange
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Monitoring stack
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-dashboard.json:/var/lib/grafana/dashboards/dashboard.json
+      - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml
+
+  statsd:
+    image: statsd/statsd
+    ports:
+      - "8125:8125/udp"
+      - "8126:8126"
+    environment:
+      - STATSD_FLUSH_INTERVAL=10000
+
+  app:
+    build:
+      context: ..
+      dockerfile: step5_balanced/Dockerfile
+    ports:
+      - "8005:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@citus_master/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@citus_master/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      STATSD_HOST: statsd
+      STATSD_PORT: 8125
+    depends_on:
+      citus_master:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: uvicorn step5_balanced.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ..:/app
+
+  # Multiple monitored workers
+  worker1:
+    build:
+      context: ..
+      dockerfile: step5_balanced/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@citus_master/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@citus_master/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      STATSD_HOST: statsd
+      STATSD_PORT: 8125
+      PYTHONPATH: /app
+    depends_on:
+      - app
+    command: python -m step5_balanced.app.workers.feed_worker 0
+    volumes:
+      - ..:/app
+
+  worker2:
+    build:
+      context: ..
+      dockerfile: step5_balanced/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@citus_master/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@citus_master/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      STATSD_HOST: statsd
+      STATSD_PORT: 8125
+      PYTHONPATH: /app
+    depends_on:
+      - app
+    command: python -m step5_balanced.app.workers.feed_worker 1
+    volumes:
+      - ..:/app
+
+  worker3:
+    build:
+      context: ..
+      dockerfile: step5_balanced/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@citus_master/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@citus_master/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      STATSD_HOST: statsd
+      STATSD_PORT: 8125
+      PYTHONPATH: /app
+    depends_on:
+      - app
+    command: python -m step5_balanced.app.workers.feed_worker 2
+    volumes:
+      - ..:/app
+
+  worker4:
+    build:
+      context: ..
+      dockerfile: step5_balanced/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@citus_master/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@citus_master/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      STATSD_HOST: statsd
+      STATSD_PORT: 8125
+      PYTHONPATH: /app
+    depends_on:
+      - app
+    command: python -m step5_balanced.app.workers.feed_worker 3
+    volumes:
+      - ..:/app
+
+volumes:
+  citus_master_data:
+  citus_worker1_data:
+  citus_worker2_data:
+  citus_worker3_data:
+  prometheus_data:
+  grafana_data:

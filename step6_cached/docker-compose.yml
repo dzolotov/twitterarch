@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # Citus Coordinator node (master)
+  citus_master:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_master
+    volumes:
+      - citus_master_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Citus Worker nodes
+  citus_worker_1:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_1
+    volumes:
+      - citus_worker1_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  citus_worker_2:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_2
+    volumes:
+      - citus_worker2_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  citus_worker_3:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_3
+    volumes:
+      - citus_worker3_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ..
+      dockerfile: step6_cached/Dockerfile
+    ports:
+      - "8006:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@citus_master/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@citus_master/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      citus_master:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn step6_cached.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ..:/app
+
+volumes:
+  citus_master_data:
+  citus_worker1_data:
+  citus_worker2_data:
+  citus_worker3_data:

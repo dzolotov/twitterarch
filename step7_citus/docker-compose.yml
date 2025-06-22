@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # Citus Coordinator
+  citus_master:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_master
+    volumes:
+      - citus_master_data:/var/lib/postgresql/data
+      - ./citus_config/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: ["postgres", "-c", "shared_preload_libraries=citus", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Worker nodes
+  citus_worker_1:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_1
+    volumes:
+      - citus_worker1_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+
+  citus_worker_2:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_2
+    volumes:
+      - citus_worker2_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+
+  citus_worker_3:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+      CITUS_NODE_NAME: citus_worker_3
+    volumes:
+      - citus_worker3_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+
+  # Application
+  app:
+    build:
+      context: ..
+      dockerfile: step7_citus/Dockerfile
+    ports:
+      - "8007:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@citus_master/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@citus_master/twitter_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379
+      CITUS_ENABLED: "true"
+    depends_on:
+      - citus_master
+      - rabbitmq
+      - redis
+    command: uvicorn step7_citus.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ..:/app
+
+  # Supporting services
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  # Citus monitoring
+  citus_exporter:
+    image: wrouesnel/postgres_exporter:latest
+    environment:
+      DATA_SOURCE_NAME: "postgresql://user:password@citus_master:5432/twitter_db?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - citus_master
+
+volumes:
+  citus_master_data:
+  citus_worker1_data:
+  citus_worker2_data:
+  citus_worker3_data:

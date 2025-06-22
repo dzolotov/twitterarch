@@ -1,0 +1,29 @@
+# Base dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+alembic==1.12.1
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# RabbitMQ
+aio-pika==9.3.1
+aiormq==6.7.6
+
+# Redis (for step 6)
+redis==5.0.1
+aioredis==2.0.1
+
+# Monitoring (for step 5)
+prometheus-client==0.19.0
+statsd==4.0.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2

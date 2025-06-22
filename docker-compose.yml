@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # Citus Coordinator (master)
+  citus_master:
+    image: citusdata/citus:12.1-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+    volumes:
+      - citus_master_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Citus Workers
+  citus_worker_1:
+    image: citusdata/citus:12.1-pg16
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+    volumes:
+      - citus_worker1_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+
+  citus_worker_2:
+    image: citusdata/citus:12.1-pg16
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+    volumes:
+      - citus_worker2_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+
+  citus_worker_3:
+    image: citusdata/citus:12.1-pg16
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+    volumes:
+      - citus_worker3_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  # For step 5 - monitoring
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  statsd:
+    image: statsd/statsd
+    ports:
+      - "8125:8125/udp"
+      - "8126:8126"
+
+volumes:
+  citus_master_data:
+  citus_worker1_data:
+  citus_worker2_data:
+  citus_worker3_data:
+  grafana_data:
