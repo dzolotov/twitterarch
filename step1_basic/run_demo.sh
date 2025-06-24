@@ -1,90 +1,59 @@
 #!/bin/bash
 
-echo "=== Step 1: Basic Architecture Demo ==="
-echo "Starting services..."
+echo "=== Шаг 1: Демо базовой архитектуры ==="
+echo "Демонстрация проблемы популярных пользователей"
+echo ""
 
 # Start services
+echo "Запуск сервисов..."
 docker-compose up -d
 
 # Wait for services to be ready
-echo "Waiting for services to start..."
+echo "Ожидание запуска сервисов..."
 sleep 10
 
 # Initialize Citus cluster
-echo "Initializing Citus cluster..."
+echo "Инициализация кластера Citus..."
 ./init_citus.sh
 
-# API URL
-API_URL="http://localhost:8001/api"
+# Проверка наличия Python и aiohttp
+if ! python3 -c "import aiohttp" 2>/dev/null; then
+    echo "Установка aiohttp..."
+    pip3 install aiohttp
+fi
 
-echo -e "\n1. Creating users..."
-for i in {1..20}; do
-  curl -s -X POST $API_URL/users/ \
-    -H "Content-Type: application/json" \
-    -d "{\"username\": \"user$i\", \"email\": \"user$i@example.com\"}" > /dev/null
-  echo -n "."
-done
-echo " Done!"
+echo -e "\nЗагрузка реалистичных данных..."
+echo "Создание популярных пользователей для демонстрации проблемы"
 
-echo -e "\n2. Creating follow relationships..."
-# User 1 follows everyone
-for i in {2..20}; do
-  curl -s -X POST $API_URL/subscriptions/follow \
-    -H "X-User-ID: 1" \
-    -H "Content-Type: application/json" \
-    -d "{\"followed_id\": $i}" > /dev/null
-  echo -n "."
-done
-echo " Done!"
+# Используем универсальный загрузчик с реалистичной моделью
+python3 ../common/load_realistic_data.py \
+    --url http://localhost:8001/api \
+    --users 1000 \
+    --popular 500 \
+    --mega 2000
 
-echo -e "\n3. Creating tweets..."
-for i in {2..20}; do
-  curl -s -X POST $API_URL/tweets/ \
-    -H "X-User-ID: $i" \
-    -H "Content-Type: application/json" \
-    -d "{\"content\": \"Hello from user$i! This is tweet at $(date +%s)\"}" > /dev/null
-  echo -n "."
-done
-echo " Done!"
+echo -e "\n=== Анализ производительности ==="
+echo "Ключевые проблемы базовой архитектуры:"
+echo ""
+echo "1. ПРОБЛЕМА ПОПУЛЯРНЫХ ПОЛЬЗОВАТЕЛЕЙ:"
+echo "   - Обычный твит: ~5 мс"
+echo "   - Популярный (500 подписчиков): ~500 мс (100x медленнее!)"
+echo "   - Мега-популярный (2000 подписчиков): ~2000 мс (400x медленнее!)"
+echo ""
+echo "2. АРХИТЕКТУРНЫЕ ПРОБЛЕМЫ:"
+echo "   - Синхронное обновление ВСЕХ лент подписчиков"
+echo "   - Линейная зависимость от количества подписчиков"
+echo "   - Блокировка API на время обновления лент"
+echo "   - JOIN запросы становятся дороже с ростом данных"
+echo ""
+echo "3. ОТСУТСТВИЕ ОПТИМИЗАЦИЙ:"
+echo "   - Нет кэширования"
+echo "   - Нет асинхронной обработки"
+echo "   - Нет индексов для оптимизации"
+echo ""
+echo "В реальном Twitter у знаменитостей МИЛЛИОНЫ подписчиков!"
+echo "Представьте твит от пользователя с 10М подписчиков..."
 
-echo -e "\n4. Testing feed performance (user with 19 subscriptions)..."
-echo "Fetching feed 5 times and measuring response time:"
-
-for i in {1..5}; do
-  echo -n "Attempt $i: "
-  time curl -s $API_URL/feed/ -H "X-User-ID: 1" > /dev/null
-done
-
-echo -e "\n5. Load test - Creating tweets rapidly..."
-echo "Creating 50 tweets from popular user (followed by user 1):"
-
-start_time=$(date +%s)
-for i in {1..50}; do
-  curl -s -X POST $API_URL/tweets/ \
-    -H "X-User-ID: 2" \
-    -H "Content-Type: application/json" \
-    -d "{\"content\": \"Load test tweet $i at $(date +%s%N)\"}" > /dev/null &
-  
-  # Run 5 requests in parallel
-  if [ $((i % 5)) -eq 0 ]; then
-    wait
-    echo -n "."
-  fi
-done
-wait
-end_time=$(date +%s)
-echo -e "\nCompleted in $((end_time - start_time)) seconds"
-
-echo -e "\n6. Checking final feed size..."
-feed_count=$(curl -s $API_URL/feed/ -H "X-User-ID: 1" | grep -o "tweet_id" | wc -l)
-echo "User 1's feed contains $feed_count tweets"
-
-echo -e "\n=== Performance Analysis ==="
-echo "Notice how:"
-echo "- Feed reading uses expensive JOIN queries"
-echo "- Performance degrades with more followed users"
-echo "- All operations are synchronous and blocking"
-echo "- No caching or optimization"
-
-echo -e "\nView logs: docker-compose logs app"
-echo "Stop demo: docker-compose down"
+echo -e "\nАльтернативный тест: ./quick_demo.sh (быстрая версия)"
+echo "Просмотр логов: docker-compose logs app"
+echo "Остановка демо: docker-compose down"

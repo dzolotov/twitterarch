@@ -1,9 +1,8 @@
-version: '3.8'
 
 services:
   # Citus Coordinator node (master)
   citus_master:
-    image: citusdata/citus:12.1-pg16 # Citus 12.1 supports PostgreSQL 16
+    image: citusdata/citus:13.0.3
     ports:
       - "5432:5432"
     environment:
@@ -22,7 +21,7 @@ services:
 
   # Citus Worker nodes
   citus_worker_1:
-    image: citusdata/citus:12.1-pg16
+    image: citusdata/citus:13.0.3
     ports:
       - "5433:5432"
     environment:
@@ -42,7 +41,7 @@ services:
       retries: 5
 
   citus_worker_2:
-    image: citusdata/citus:12.1-pg16
+    image: citusdata/citus:13.0.3
     ports:
       - "5434:5432"
     environment:
@@ -62,7 +61,7 @@ services:
       retries: 5
 
   citus_worker_3:
-    image: citusdata/citus:12.1-pg16
+    image: citusdata/citus:13.0.3
     ports:
       - "5435:5432"
     environment:

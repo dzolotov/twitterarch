@@ -1,11 +1,10 @@
-version: '3.8'
 
 services:
   # Citus Coordinator (master)
   citus_master:
-    image: citusdata/citus:12.1-pg16
+    image: citusdata/citus:13.0.3
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -21,7 +20,7 @@ services:
 
   # Citus Workers
   citus_worker_1:
-    image: citusdata/citus:12.1-pg16
+    image: citusdata/citus:13.0.3
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -33,7 +32,7 @@ services:
       - citus_master
 
   citus_worker_2:
-    image: citusdata/citus:12.1-pg16
+    image: citusdata/citus:13.0.3
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -45,7 +44,7 @@ services:
       - citus_master
 
   citus_worker_3:
-    image: citusdata/citus:12.1-pg16
+    image: citusdata/citus:13.0.3
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password

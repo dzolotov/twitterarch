@@ -40,18 +40,36 @@ Same as Step 1, but with different internal implementations:
 - `GET /api/feed/` - Now reads from pre-computed feed (much faster)
 - `POST /api/tweets/` - Now updates all follower feeds (slower)
 
-## Performance Comparison
+## Running the Demo
+
+A demo script is provided that creates a realistic test scenario:
 
 ```bash
-# Create test data (same as Step 1)
-# ...
+# Run the demo script
+./run_demo.sh
+```
 
+The demo creates:
+- 2000 regular users
+- 1 celebrity user (ID: 2001) with 500 followers
+- Sample tweets from various users
+- Performance measurements for different operations
+
+## Performance Test
+
+The demo script tests the performance characteristics of this architecture:
+- Fast feed reads (pre-computed feeds)
+- Slower tweet creation for users with many followers (synchronous fan-out)
+- Celebrity user with 500 followers to demonstrate the fan-out bottleneck
+
+```bash
+# Manual performance testing
 # Test feed performance (now fast regardless of followers)
 time curl http://localhost:8002/api/feed/ -H "X-User-ID: 1"
 
 # Test tweet creation (now slower with many followers)
 time curl -X POST http://localhost:8002/api/tweets/ \
-  -H "X-User-ID: 2" \
+  -H "X-User-ID: 2001" \
   -H "Content-Type: application/json" \
   -d '{"content": "This will update all my followers feeds synchronously!"}'
 ```

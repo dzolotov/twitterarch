@@ -36,9 +36,30 @@ python worker.py 2
 python worker.py 3
 ```
 
-## Testing Load Distribution
+## Running the Demo
+
+A demo script is provided that creates a realistic test scenario:
 
 ```bash
+# Run the demo script
+./run_demo.sh
+```
+
+The demo creates:
+- 2000 regular users
+- 1 megastar user (ID: 2001) with 1999 followers (all other users)
+- Demonstrates parallel processing across multiple workers
+- Shows load distribution with consistent hashing
+
+## Testing Load Distribution
+
+The demo script tests the multi-consumer architecture:
+- Megastar user with 1999 followers creates massive fan-out
+- Messages distributed across 4 workers using consistent hashing
+- Each worker handles ~500 feed updates in parallel
+
+```bash
+# Manual testing
 # Create users
 for i in {1..100}; do
   curl -X POST http://localhost:8004/api/users/ \

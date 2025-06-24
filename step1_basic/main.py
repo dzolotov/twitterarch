@@ -6,13 +6,20 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from common.database import engine
 from common.models import Base
-from app.api import users, tweets, subscriptions, feed
+from common.init_db import init_database
+from step1_basic.app.api import users, tweets, subscriptions, feed
+import asyncio
+import os
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Startup - Initialize database based on DB_TYPE
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, init_database)
+    
+    db_type = os.getenv('DB_TYPE', 'postgres')
+    print(f"\nStep 1 running in {db_type.upper()} mode")
+    
     yield
     # Shutdown
     await engine.dispose()

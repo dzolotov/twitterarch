@@ -17,63 +17,47 @@ echo "Initializing Citus cluster..."
 # API URL
 API_URL="http://localhost:8005/api"
 
-echo -e "\n1. Creating test users for load testing..."
-for i in {1..500}; do
-  curl -s -X POST $API_URL/users/ \
-    -H "Content-Type: application/json" \
-    -d "{\"username\": \"user$i\", \"email\": \"user$i@example.com\"}" > /dev/null
-  if [ $((i % 50)) -eq 0 ]; then
-    echo -n "."
-  fi
-done
-echo " Done!"
+echo -e "\n1. Loading realistic data with universal loader..."
+cd ..
+python3 common/load_realistic_data.py \
+  --url "$API_URL" \
+  --users 1000 \
+  --popular 500 \
+  --mega 2000 \
+  --no-measure
+cd step5_balanced
 
-echo -e "\n2. Creating influencers with varying follower counts..."
-# Influencer 1: 100 followers
-curl -s -X POST $API_URL/users/ \
-  -H "Content-Type: application/json" \
-  -d "{\"username\": \"influencer1\", \"email\": \"influencer1@example.com\"}" > /dev/null
+# Wait for data processing
+echo -e "\nWaiting for data processing..."
+sleep 10
 
-for i in {1..100}; do
-  curl -s -X POST $API_URL/subscriptions/follow \
-    -H "X-User-ID: $i" \
-    -H "Content-Type: application/json" \
-    -d "{\"followed_id\": 501}" > /dev/null
-done
-echo "Influencer 1: 100 followers ✓"
-
-# Influencer 2: 200 followers
-curl -s -X POST $API_URL/users/ \
-  -H "Content-Type: application/json" \
-  -d "{\"username\": \"influencer2\", \"email\": \"influencer2@example.com\"}" > /dev/null
-
-for i in {101..300}; do
-  curl -s -X POST $API_URL/subscriptions/follow \
-    -H "X-User-ID: $i" \
-    -H "Content-Type: application/json" \
-    -d "{\"followed_id\": 502}" > /dev/null
-done
-echo "Influencer 2: 200 followers ✓"
-
-# Celebrity: 499 followers
-curl -s -X POST $API_URL/users/ \
-  -H "Content-Type: application/json" \
-  -d "{\"username\": \"celebrity\", \"email\": \"celebrity@example.com\"}" > /dev/null
-
-for i in {1..499}; do
-  curl -s -X POST $API_URL/subscriptions/follow \
-    -H "X-User-ID: $i" \
-    -H "Content-Type: application/json" \
-    -d "{\"followed_id\": 503}" > /dev/null
-  if [ $((i % 100)) -eq 0 ]; then
-    echo -n "."
-  fi
-done
-echo " Celebrity: 499 followers ✓"
-
-echo -e "\n3. Checking monitoring endpoints..."
+echo -e "\n2. Checking monitoring endpoints..."
 echo "Prometheus metrics available:"
 curl -s $API_URL/../metrics | grep -E "^(tweets_created_total|feed_updates_total|worker_messages_processed_total)" | head -5
+
+echo -e "\n3. Performance testing with popular users..."
+echo "Testing tweet creation performance degradation:"
+
+# Normal user tweet
+echo -e "\nNormal user (few followers):"
+time curl -s -X POST $API_URL/tweets/ \
+  -H "X-User-ID: 999" \
+  -H "Content-Type: application/json" \
+  -d "{\"content\": \"Normal user tweet - minimal feed updates\"}"
+
+# Popular user tweet (500 followers) 
+echo -e "\nPopular user (500 followers):"
+time curl -s -X POST $API_URL/tweets/ \
+  -H "X-User-ID: 1" \
+  -H "Content-Type: application/json" \
+  -d "{\"content\": \"Popular user tweet - 500 feed updates\"}"
+
+# Mega-popular user tweet (2000 followers)
+echo -e "\nMega-popular user (2000 followers):"
+time curl -s -X POST $API_URL/tweets/ \
+  -H "X-User-ID: 2" \
+  -H "Content-Type: application/json" \
+  -d "{\"content\": \"Mega-popular tweet - 2000 feed updates\"}"
 
 echo -e "\n4. Starting sustained load test..."
 echo "Generating continuous load for metrics collection:"
@@ -95,11 +79,11 @@ create_tweets() {
 
 # Start background load
 echo "Starting background load generators..."
-create_tweets 501 100 0.5 &  # Influencer 1: 100 tweets, 0.5s delay
+create_tweets 1 50 0.5 &    # Popular user: 50 tweets, 0.5s delay
 PID1=$!
-create_tweets 502 100 1 &    # Influencer 2: 100 tweets, 1s delay
+create_tweets 2 25 1 &      # Mega-popular user: 25 tweets, 1s delay
 PID2=$!
-create_tweets 503 50 2 &     # Celebrity: 50 tweets, 2s delay
+create_tweets 100 50 0.2 &  # Normal user: 50 tweets, 0.2s delay
 PID3=$!
 
 echo "Load generators running (PIDs: $PID1, $PID2, $PID3)"
@@ -157,6 +141,9 @@ echo "✅ Optimized message routing (hash: 20)"
 echo "✅ Batch processing for efficiency"
 echo "✅ Worker performance tracking"
 echo "✅ Production-ready monitoring"
+echo "✅ Popular users (500 followers) create moderate load"
+echo "✅ Mega-popular users (2000 followers) create significant load"
+echo "✅ Balanced routing distributes work evenly across workers"
 
 echo -e "\nImport Grafana dashboard:"
 echo "1. Open http://localhost:3000"

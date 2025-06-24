@@ -36,16 +36,23 @@ EOF
 # Create distributed tables
 echo "Creating distributed tables..."
 docker-compose exec -T citus_master psql -U user -d twitter_db << 'EOF'
--- Create users table if not exists
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Drop existing tables if they exist
+DROP TABLE IF EXISTS feed_items CASCADE;
+DROP TABLE IF EXISTS subscriptions CASCADE;
+DROP TABLE IF EXISTS tweets CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
+-- Create users table
+CREATE TABLE users (
+    id SERIAL,
+    username VARCHAR(50) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
 );
 
--- Create tweets table if not exists  
-CREATE TABLE IF NOT EXISTS tweets (
+-- Create tweets table  
+CREATE TABLE tweets (
     id SERIAL,
     content VARCHAR(280) NOT NULL,
     author_id INTEGER NOT NULL,
@@ -53,8 +60,8 @@ CREATE TABLE IF NOT EXISTS tweets (
     PRIMARY KEY (id, author_id)
 );
 
--- Create subscriptions table if not exists
-CREATE TABLE IF NOT EXISTS subscriptions (
+-- Create subscriptions table
+CREATE TABLE subscriptions (
     id SERIAL,
     follower_id INTEGER NOT NULL,
     followed_id INTEGER NOT NULL,
@@ -63,27 +70,28 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     UNIQUE (follower_id, followed_id)
 );
 
--- Create indexes before distribution
-CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-CREATE INDEX IF NOT EXISTS idx_tweets_author_created ON tweets(author_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_subs_follower ON subscriptions(follower_id);
-CREATE INDEX IF NOT EXISTS idx_subs_followed ON subscriptions(followed_id);
+-- Create feed_items table (without foreign keys for now)
+CREATE TABLE feed_items (
+    id SERIAL,
+    user_id INTEGER NOT NULL,
+    tweet_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, user_id),
+    UNIQUE (user_id, tweet_id)
+);
 
--- Distribute tables only if not already distributed
-DO $$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_dist_partition WHERE logicalrelid = 'users'::regclass) THEN
-        PERFORM create_distributed_table('users', 'id', shard_count => 32);
-    END IF;
-    
-    IF NOT EXISTS (SELECT 1 FROM pg_dist_partition WHERE logicalrelid = 'tweets'::regclass) THEN
-        PERFORM create_distributed_table('tweets', 'author_id', colocate_with => 'users');
-    END IF;
-    
-    IF NOT EXISTS (SELECT 1 FROM pg_dist_partition WHERE logicalrelid = 'subscriptions'::regclass) THEN
-        PERFORM create_distributed_table('subscriptions', 'follower_id', colocate_with => 'users');
-    END IF;
-END $$;
+-- Distribute tables
+SELECT create_distributed_table('users', 'id', shard_count => 32);
+SELECT create_distributed_table('tweets', 'author_id', colocate_with => 'users');
+SELECT create_distributed_table('subscriptions', 'follower_id', colocate_with => 'users');
+SELECT create_distributed_table('feed_items', 'user_id', colocate_with => 'users');
+
+-- Create indexes after distribution
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_tweets_author_created ON tweets(author_id, created_at DESC);
+CREATE INDEX idx_subs_follower ON subscriptions(follower_id);
+CREATE INDEX idx_subs_followed ON subscriptions(followed_id);
+CREATE INDEX idx_feed_user_created ON feed_items(user_id, created_at DESC);
 
 -- Show distribution info
 SELECT 

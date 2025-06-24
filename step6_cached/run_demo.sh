@@ -17,47 +17,42 @@ echo "Initializing Citus cluster..."
 # API URL
 API_URL="http://localhost:8006/api"
 
-echo -e "\n1. Creating test users..."
-for i in {1..1000}; do
-  curl -s -X POST $API_URL/users/ \
-    -H "Content-Type: application/json" \
-    -d "{\"username\": \"user$i\", \"email\": \"user$i@example.com\"}" > /dev/null
-  if [ $((i % 100)) -eq 0 ]; then
-    echo -n "."
-  fi
-done
-echo " Done!"
+echo -e "\n1. Loading realistic data with universal loader..."
+cd ..
+python3 common/load_realistic_data.py \
+  --url "$API_URL" \
+  --users 1000 \
+  --popular 500 \
+  --mega 2000 \
+  --no-measure
+cd step6_cached
 
-echo -e "\n2. Creating super celebrity with 999 followers..."
-curl -s -X POST $API_URL/users/ \
-  -H "Content-Type: application/json" \
-  -d "{\"username\": \"superstar\", \"email\": \"superstar@example.com\"}" > /dev/null
-
-for i in {1..999}; do
-  curl -s -X POST $API_URL/subscriptions/follow \
-    -H "X-User-ID: $i" \
-    -H "Content-Type: application/json" \
-    -d "{\"followed_id\": 1001}" > /dev/null
-  if [ $((i % 100)) -eq 0 ]; then
-    echo -n "."
-  fi
-done
-echo " Done!"
-
-echo -e "\n3. Creating initial tweets to populate feeds..."
-for i in {1..50}; do
-  curl -s -X POST $API_URL/tweets/ \
-    -H "X-User-ID: 1001" \
-    -H "Content-Type: application/json" \
-    -d "{\"content\": \"Initial tweet $i from superstar to warm up caches\"}" > /dev/null
-  echo -n "."
-done
-echo " Done!"
-
-echo -e "\n4. Waiting for feeds to be processed..."
+# Wait for data processing
+echo -e "\nWaiting for data processing..."
 sleep 10
 
-echo -e "\n5. Testing cache performance..."
+echo -e "\n2. Creating initial tweets to populate feeds..."
+echo "Popular user creating tweets:"
+for i in {1..20}; do
+  curl -s -X POST $API_URL/tweets/ \
+    -H "X-User-ID: 1" \
+    -H "Content-Type: application/json" \
+    -d "{\"content\": \"Popular user tweet $i - warming up caches\"}" > /dev/null
+done
+
+echo "Mega-popular user creating tweets:"
+for i in {1..20}; do
+  curl -s -X POST $API_URL/tweets/ \
+    -H "X-User-ID: 2" \
+    -H "Content-Type: application/json" \
+    -d "{\"content\": \"Mega-popular tweet $i - massive distribution\"}" > /dev/null
+done
+echo "Initial tweets created!"
+
+echo -e "\n3. Waiting for feed processing..."
+sleep 10
+
+echo -e "\n4. Testing cache performance..."
 echo "First access (cache miss - will populate cache):"
 for i in {1..5}; do
   user_id=$((RANDOM % 100 + 1))
@@ -72,37 +67,40 @@ for i in {1..5}; do
   time curl -s $API_URL/feed/ -H "X-User-ID: $user_id" > /dev/null
 done
 
-echo -e "\n6. Checking cache statistics..."
+echo -e "\n5. Checking cache statistics..."
 cache_stats=$(curl -s $API_URL/../cache/stats)
-echo "Cache stats: $cache_stats" | jq .
+echo "Cache statistics:" 
+echo "$cache_stats" | jq .
 
-echo -e "\n7. Testing circular buffer behavior..."
-echo "Creating 20 more tweets to test buffer overflow:"
-for i in {51..70}; do
+echo -e "\n6. Testing circular buffer behavior..."
+echo "Creating 50 more tweets to test buffer overflow:"
+for i in {21..70}; do
   curl -s -X POST $API_URL/tweets/ \
-    -H "X-User-ID: 1001" \
+    -H "X-User-ID: 2" \
     -H "Content-Type: application/json" \
     -d "{\"content\": \"Buffer test tweet $i - testing circular buffer overflow\"}" > /dev/null
-  echo -n "."
+  if [ $((i % 10)) -eq 0 ]; then
+    echo -n " $i"
+  fi
 done
 echo " Done!"
 
 sleep 5
 
-echo -e "\n8. Checking hot users (most accessed)..."
+echo -e "\n7. Checking hot users (most accessed)..."
 cache_stats=$(curl -s $API_URL/../cache/stats)
 echo "Hot users:" 
 echo "$cache_stats" | jq '.hot_users'
 
-echo -e "\n9. Message deduplication test..."
-echo "Checking if duplicate messages are properly handled:"
+echo -e "\n8. Testing message deduplication..."
+echo "Testing proper handling of duplicate messages:"
 # Get current stats
 before_stats=$(curl -s $API_URL/../cache/stats | jq '.processed_messages')
-echo "Processed messages before: $before_stats"
+echo "Messages processed before: $before_stats"
 
 # Create a tweet (will generate messages)
 curl -s -X POST $API_URL/tweets/ \
-  -H "X-User-ID: 1001" \
+  -H "X-User-ID: 1" \
   -H "Content-Type: application/json" \
   -d "{\"content\": \"Deduplication test tweet\"}" > /dev/null
 
@@ -110,28 +108,48 @@ sleep 3
 
 # Check stats again
 after_stats=$(curl -s $API_URL/../cache/stats | jq '.processed_messages')
-echo "Processed messages after: $after_stats"
+echo "Messages processed after: $after_stats"
 
-echo -e "\n10. Load test with caching..."
-echo "Creating 100 tweets rapidly to test cache under load:"
+echo -e "\n9. Load test with caching..."
+echo "Performance comparison - Popular vs Mega-popular users:"
 
+# Popular user (500 followers)
+echo -e "\nPopular user (500 followers) - 25 tweets:"
 start_time=$(date +%s%N)
-for i in {1..100}; do
+for i in {1..25}; do
   curl -s -X POST $API_URL/tweets/ \
-    -H "X-User-ID: 1001" \
+    -H "X-User-ID: 1" \
     -H "Content-Type: application/json" \
-    -d "{\"content\": \"Cache load test $i at $(date +%s%N)\"}" > /dev/null &
+    -d "{\"content\": \"Popular load test $i at $(date +%s%N)\"}" > /dev/null &
   
-  if [ $((i % 20)) -eq 0 ]; then
+  if [ $((i % 10)) -eq 0 ]; then
     wait
-    echo -n "."
+    echo -n " $i"
   fi
 done
 wait
 end_time=$(date +%s%N)
-echo -e "\n100 tweets created in $(((end_time - start_time) / 1000000))ms"
+echo -e "\n25 tweets from popular user: $(((end_time - start_time) / 1000000))ms"
 
-echo -e "\n11. Cache performance comparison..."
+# Mega-popular user (2000 followers)
+echo -e "\nMega-popular user (2000 followers) - 25 tweets:"
+start_time=$(date +%s%N)
+for i in {1..25}; do
+  curl -s -X POST $API_URL/tweets/ \
+    -H "X-User-ID: 2" \
+    -H "Content-Type: application/json" \
+    -d "{\"content\": \"Mega load test $i at $(date +%s%N)\"}" > /dev/null &
+  
+  if [ $((i % 10)) -eq 0 ]; then
+    wait
+    echo -n " $i"
+  fi
+done
+wait
+end_time=$(date +%s%N)
+echo -e "\n25 tweets from mega-popular user: $(((end_time - start_time) / 1000000))ms"
+
+echo -e "\n10. Cache performance comparison..."
 echo "Reading feeds with and without cache:"
 
 # Clear specific user's cache
@@ -143,13 +161,13 @@ time curl -s $API_URL/feed/ -H "X-User-ID: $user_test" > /dev/null
 echo -e "\nWith cache (second read):"
 time curl -s $API_URL/feed/ -H "X-User-ID: $user_test" > /dev/null
 
-echo -e "\n12. Final cache statistics..."
+echo -e "\n11. Final cache statistics..."
 final_stats=$(curl -s $API_URL/../cache/stats)
 echo "Final cache state:"
 echo "$final_stats" | jq .
 
 echo -e "\n=== Redis Cache Analysis ==="
-echo "Checking Redis directly:"
+echo "Direct Redis check:"
 docker-compose exec redis redis-cli INFO memory | grep used_memory_human
 
 echo -e "\nCache key patterns:"
@@ -161,13 +179,15 @@ docker-compose exec redis redis-cli --scan --pattern "msg:processed:*" | head -1
 
 echo -e "\n=== Performance Analysis ==="
 echo "Notice how:"
-echo "✅ Cache hits are 10x faster than cache misses"
+echo "✅ Cache hits are 10x faster than misses"
 echo "✅ Circular buffer limits memory usage"
-echo "✅ Hot users are automatically tracked"
+echo "✅ Hot users are tracked automatically"
 echo "✅ Message deduplication prevents reprocessing"
 echo "✅ Cache warming improves performance"
 echo "✅ Redis LRU eviction manages memory"
+echo "✅ Popular users (500 followers) benefit from caching"
+echo "✅ Mega-popular users (2000 followers) stress test the system"
 
-echo -e "\nRedis Commander (if needed): docker run -d --rm --name redis-commander -p 8081:8081 --link step6_cached_redis_1:redis rediscommander/redis-commander:latest --redis-host redis"
+echo -e "\nRedis Commander (optional): docker run -d --rm --name redis-commander -p 8081:8081 --link step6_cached_redis_1:redis rediscommander/redis-commander:latest --redis-host redis"
 
 echo -e "\nStop demo: docker-compose down -v"

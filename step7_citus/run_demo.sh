@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "=== Step 7: Citus Distributed Architecture Demo ==="
+echo "=== Step 7: Distributed Citus Architecture Demo ==="
 echo "Demonstrating horizontal scaling with distributed PostgreSQL"
 echo ""
 
@@ -13,16 +13,19 @@ fi
 # API URL
 API_URL="http://localhost:8007/api"
 
-echo -e "\n1. Creating users distributed across shards..."
-for i in {1..1000}; do
-  curl -s -X POST $API_URL/users/ \
-    -H "Content-Type: application/json" \
-    -d "{\"username\": \"user$i\", \"email\": \"user$i@example.com\"}" > /dev/null
-  if [ $((i % 100)) -eq 0 ]; then
-    echo -n "."
-  fi
-done
-echo " Done!"
+echo -e "\n1. Loading realistic data with universal loader..."
+cd ..
+python3 common/load_realistic_data.py \
+  --url "$API_URL" \
+  --users 1000 \
+  --popular 500 \
+  --mega 2000 \
+  --no-measure
+cd step7_citus
+
+# Wait for data processing
+echo -e "\nWaiting for data processing..."
+sleep 10
 
 echo -e "\n2. Checking user distribution across shards..."
 docker-compose exec -T citus_master psql -U user -d twitter_db << 'EOF'
@@ -48,42 +51,36 @@ GROUP BY nodename
 ORDER BY nodename;
 EOF
 
-echo -e "\n3. Creating celebrity users with many followers..."
-# Create 3 celebrities
-for i in {1..3}; do
-  curl -s -X POST $API_URL/users/ \
+echo -e "\n3. Testing distributed query performance..."
+echo "Creating tweets from popular users (distributed across shards):"
+
+# Popular user tweets
+echo -e "\nPopular user (500 followers) creating 20 tweets:"
+for i in {1..20}; do
+  curl -s -X POST $API_URL/tweets/ \
+    -H "X-User-ID: 1" \
     -H "Content-Type: application/json" \
-    -d "{\"username\": \"celebrity$i\", \"email\": \"celebrity$i@example.com\"}" > /dev/null
-done
-
-# Make users follow celebrities
-echo "Creating follow relationships..."
-for celeb in {1001..1003}; do
-  for i in {1..333}; do
-    curl -s -X POST $API_URL/subscriptions/follow \
-      -H "X-User-ID: $i" \
-      -H "Content-Type: application/json" \
-      -d "{\"followed_id\": $celeb}" > /dev/null
-  done
-  echo -n "."
+    -d "{\"content\": \"Popular tweet $i - distributed to 500 followers at $(date +%s)\"}" > /dev/null
+  if [ $((i % 5)) -eq 0 ]; then
+    echo -n "."
+  fi
 done
 echo " Done!"
 
-echo -e "\n4. Testing distributed query performance..."
-echo "Creating tweets from celebrities (distributed across shards):"
-
-for celeb in {1001..1003}; do
-  for i in {1..10}; do
-    curl -s -X POST $API_URL/tweets/ \
-      -H "X-User-ID: $celeb" \
-      -H "Content-Type: application/json" \
-      -d "{\"content\": \"Celebrity $celeb tweet $i - distributed across $(date +%s)\"}" > /dev/null
-  done
-  echo -n "."
+# Mega-popular user tweets
+echo -e "\nMega-popular user (2000 followers) creating 20 tweets:"
+for i in {1..20}; do
+  curl -s -X POST $API_URL/tweets/ \
+    -H "X-User-ID: 2" \
+    -H "Content-Type: application/json" \
+    -d "{\"content\": \"Mega tweet $i - distributed to 2000 followers at $(date +%s)\"}" > /dev/null
+  if [ $((i % 5)) -eq 0 ]; then
+    echo -n "."
+  fi
 done
 echo " Done!"
 
-echo -e "\n5. Analyzing distributed query execution..."
+echo -e "\n4. Analyzing distributed query execution..."
 docker-compose exec -T citus_master psql -U user -d twitter_db << 'EOF'
 -- Show distributed query plan
 EXPLAIN (ANALYZE, VERBOSE, BUFFERS)
@@ -92,43 +89,65 @@ SELECT
     COUNT(t.id) as tweet_count
 FROM users u
 JOIN tweets t ON u.id = t.author_id
-WHERE u.id > 1000
+WHERE u.id IN (1, 2)
 GROUP BY u.username
 ORDER BY tweet_count DESC
 LIMIT 10;
 EOF
 
-echo -e "\n6. Testing colocation benefits..."
+echo -e "\n5. Testing colocation benefits..."
 echo "Query that benefits from colocation (user + their tweets on same shard):"
 
 docker-compose exec -T citus_master psql -U user -d twitter_db << 'EOF'
 \timing on
--- This query runs locally on each shard due to colocation
+-- This query runs locally on each shard thanks to colocation
 SELECT 
     u.username,
     t.content,
     t.created_at
 FROM users u
 JOIN tweets t ON u.id = t.author_id
-WHERE u.id = 1001
+WHERE u.id = 1
 ORDER BY t.created_at DESC
 LIMIT 10;
 EOF
 
-echo -e "\n7. Demonstrating parallel feed updates..."
-echo "Creating a viral tweet (will fan out to 333 followers):"
+echo -e "\n6. Demonstrating parallel feed updates..."
+echo "Performance comparison - tweet distribution times:"
 
+# Normal user
+echo -e "\nNormal user (few followers):"
 start_time=$(date +%s%N)
 curl -s -X POST $API_URL/tweets/ \
-  -H "X-User-ID: 1001" \
+  -H "X-User-ID: 999" \
   -H "Content-Type: application/json" \
-  -d "{\"content\": \"This viral tweet will be distributed across shards!\"}" > /dev/null
+  -d "{\"content\": \"Normal tweet - minimal distribution\"}" > /dev/null
 end_time=$(date +%s%N)
 echo "Tweet created in $(((end_time - start_time) / 1000000))ms"
 
-echo -e "\n8. Monitoring shard activity..."
+# Popular user
+echo -e "\nPopular user (500 followers):"
+start_time=$(date +%s%N)
+curl -s -X POST $API_URL/tweets/ \
+  -H "X-User-ID: 1" \
+  -H "Content-Type: application/json" \
+  -d "{\"content\": \"Popular tweet - distributed to 500 followers across shards!\"}" > /dev/null
+end_time=$(date +%s%N)
+echo "Tweet created in $(((end_time - start_time) / 1000000))ms"
+
+# Mega-popular user
+echo -e "\nMega-popular user (2000 followers):"
+start_time=$(date +%s%N)
+curl -s -X POST $API_URL/tweets/ \
+  -H "X-User-ID: 2" \
+  -H "Content-Type: application/json" \
+  -d "{\"content\": \"Mega tweet - distributed to 2000 followers across shards!\"}" > /dev/null
+end_time=$(date +%s%N)
+echo "Tweet created in $(((end_time - start_time) / 1000000))ms"
+
+echo -e "\n7. Monitoring shard activity..."
 docker-compose exec -T citus_master psql -U user -d twitter_db << 'EOF'
--- Show recent distributed deadlock detection
+-- Show recent distributed activity
 SELECT * FROM citus_dist_stat_activity 
 WHERE query NOT LIKE '%citus_dist_stat_activity%'
 LIMIT 5;
@@ -153,17 +172,17 @@ GROUP BY logicalrelid
 ORDER BY SUM(shard_size) DESC;
 EOF
 
-echo -e "\n9. Load test - Distributed writes..."
-echo "Creating 1000 tweets from different users (parallel across shards):"
+echo -e "\n8. Load test - Distributed writes..."
+echo "Creating 100 tweets from different users (parallel across shards):"
 
-for i in {1..1000}; do
+for i in {1..100}; do
   user_id=$((RANDOM % 1000 + 1))
   curl -s -X POST $API_URL/tweets/ \
     -H "X-User-ID: $user_id" \
     -H "Content-Type: application/json" \
     -d "{\"content\": \"Distributed tweet $i from user $user_id\"}" > /dev/null &
   
-  if [ $((i % 100)) -eq 0 ]; then
+  if [ $((i % 50)) -eq 0 ]; then
     wait
     echo -n "."
   fi
@@ -171,7 +190,7 @@ done
 wait
 echo " Done!"
 
-echo -e "\n10. Rebalancing demonstration..."
+echo -e "\n9. Demonstrating shard distribution..."
 echo "Shard distribution across workers:"
 docker-compose exec -T citus_master psql -U user -d twitter_db << 'EOF'
 SELECT 
@@ -201,12 +220,14 @@ ORDER BY nodename, table_name;
 EOF
 
 echo -e "\n=== Citus Performance Analysis ==="
-echo "Benefits demonstrated:"
+echo "Demonstrated benefits:"
 echo "✅ Data distributed across multiple nodes"
 echo "✅ Queries parallelized across shards"
-echo "✅ Colocated JOINs execute locally"
-echo "✅ Linear scalability with more nodes"
+echo "✅ Colocated JOINs run locally"
+echo "✅ Linear scalability with node addition"
 echo "✅ Automatic shard rebalancing available"
+echo "✅ Popular users (500 followers) scale horizontally"
+echo "✅ Mega-popular users (2000 followers) benefit from distribution"
 
 echo -e "\nCitus Dashboard: http://localhost:9700 (if citus-enterprise)"
 echo "Add more workers: docker-compose scale citus_worker=5"

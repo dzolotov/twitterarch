@@ -34,6 +34,29 @@ After adding T9:
                  ^head ^tail
 ```
 
+## Running the Demo
+
+A demo script is provided that creates a realistic test scenario:
+
+```bash
+# Run the demo script
+./run_demo.sh
+```
+
+The demo creates:
+- 2000 regular users
+- 1 superstar user (ID: 2001) with 1999 followers
+- Demonstrates Redis caching benefits
+- Shows circular buffer efficiency
+
+## Performance Testing
+
+The demo script tests the cached architecture:
+- Superstar user with 1999 followers
+- Cache warming for hot feeds
+- Circular buffer operations
+- Cache hit rates and performance metrics
+
 ## Performance Improvements
 - 10x faster feed reads for hot users
 - Reduced database load by 80%

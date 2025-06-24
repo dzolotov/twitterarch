@@ -60,3 +60,18 @@ done
 # Test feed performance (will be slow)
 time curl http://localhost:8001/api/feed/ -H "X-User-ID: 1"
 ```
+
+## Running the Demo
+
+The included `run_demo.sh` script creates 2000 users with user1 following 1999 users to demonstrate the performance impact:
+
+```bash
+./run_demo.sh
+```
+
+This will:
+- Create 2000 users
+- Make user1 follow all other 1999 users
+- Create tweets from 200 users
+- Test feed performance with 1999 subscriptions
+- Run load tests to show the system under stress

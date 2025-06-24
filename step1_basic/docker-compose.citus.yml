@@ -1,0 +1,65 @@
+services:
+  # Citus Coordinator (master)
+  citus_master:
+    image: citusdata/citus:12.1
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+    volumes:
+      - citus_master_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d twitter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Citus Workers
+  citus_worker_1:
+    image: citusdata/citus:12.1
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+    volumes:
+      - citus_worker1_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+
+  citus_worker_2:
+    image: citusdata/citus:12.1
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: twitter_db
+    volumes:
+      - citus_worker2_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
+    depends_on:
+      - citus_master
+
+  app:
+    build:
+      context: ..
+      dockerfile: step1_basic/Dockerfile
+    ports:
+      - "8002:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@citus_master/twitter_db
+      DATABASE_URL_SYNC: postgresql://user:password@citus_master/twitter_db
+      DB_TYPE: citus
+    depends_on:
+      citus_master:
+        condition: service_healthy
+    command: uvicorn step1_basic.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ..:/app
+
+volumes:
+  citus_master_data:
+  citus_worker1_data:
+  citus_worker2_data:

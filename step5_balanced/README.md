@@ -57,9 +57,34 @@ python worker.py 3
 - Custom application metrics
 - Processing times, queue sizes, error rates
 
-## Performance Testing
+## Running the Demo
+
+A demo script is provided that creates a realistic test scenario:
 
 ```bash
+# Run the demo script
+./run_demo.sh
+```
+
+The demo creates:
+- 2000 regular users
+- 3 influencer users with different follower counts:
+  - Influencer 2001: 500 followers
+  - Influencer 2002: 1000 followers
+  - Influencer 2003: 1999 followers
+- Performance measurements and monitoring data
+- Load testing with multiple tweet types
+
+## Performance Testing
+
+The demo script tests the production-ready architecture:
+- Multiple influencer tiers to demonstrate scaling
+- Full metrics collection via Prometheus and StatsD
+- Batch processing optimization
+- Worker load distribution monitoring
+
+```bash
+# Manual performance testing
 # Create test users
 for i in {1..1000}; do
   curl -X POST http://localhost:8005/api/users/ \

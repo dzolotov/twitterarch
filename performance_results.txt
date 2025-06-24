@@ -1,0 +1,18 @@
+Performance Test Results - понедельник, 23 июня 2025 г. 02:09:10 (+03)
+Test params: 100 users, 50 followers, 20 tweets
+
+Step 1: Basic Synchronous
+Average tweet creation time: 17ms
+Average feed read time: 17ms
+
+Step 2: Prepared Feed
+Average tweet creation time: 10ms
+Average feed read time: 10ms
+
+Step 3: Async Feed
+Average tweet creation time: 11ms
+Average feed read time: 16ms
+Queue status: 
+
+Step 4: Multi-Consumer
+Average tweet creation time: 11ms
